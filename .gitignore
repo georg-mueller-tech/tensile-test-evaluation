@@ -1,0 +1,16 @@
+# Rohdaten (gehören dem Lehrstuhl)
+daten/
+
+# vom Skript erzeugt
+figures/
+ergebnisse.tex
+ergebnisse.csv
+
+# MATLAB
+*.asv
+*.m~
+slprj/
+
+# Betriebssystem
+.DS_Store
+Thumbs.db
