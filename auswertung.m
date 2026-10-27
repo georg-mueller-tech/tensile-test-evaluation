@@ -1,338 +1,299 @@
-function auswertung()
-%AUSWERTUNG  Auswertung der Zugversuche an AlMg3 und CFK.
-%   Liest die Messdaten aus daten/, berechnet E-Modul, Festigkeit und
-%   Bruchdehnung und schreibt:
-%     figures/*.pdf    Kraft-Dehnungs- und Kraft-Weg-Diagramme
-%     ergebnisse.tex   Kennwerte als LaTeX-Makros für den Bericht
-%     ergebnisse.csv   dieselben Kennwerte als Tabelle
-%
-%   Einheiten der Rohdaten: Kraft in kN, Maschinenweg in mm,
-%   Dehnung (DMS bzw. Extensometer) in %.
-%   Benötigt MATLAB R2020a oder neuer (exportgraphics, xline, yline).
+function evaluate_tensile_tests()
+%EVALUATE_TENSILE_TESTS  Tensile test evaluation for AlMg3 and CFRP laminates.
+%   Reads the raw machine data from data/, computes modulus, strength and
+%   strain at fracture, and writes
+%     figures/*.pdf   force-strain and force-displacement plots
+%     results.tex     all results as LaTeX macros for the report
+%     results.csv     the same results as a table
+%   Raw data units: force in kN, crosshead displacement in mm, strain in %.
+%   Needs MATLAB R2020a or newer.
 
-here   = fileparts(mfilename('fullpath'));
-daten  = fullfile(here, 'daten');
-figDir = fullfile(here, 'figures');
+root   = fileparts(mfilename('fullpath'));
+figDir = fullfile(root, 'figures');
 if ~exist(figDir, 'dir'), mkdir(figDir); end
 
-%% Probengeometrie aus dem Versuchsprotokoll
-% Breite b [mm], Dicke t oben/mittig/unten [mm], Bezugslänge L0 [mm]
-P.Alu    = probe(16.06, [4.04 4.04 4.05],  65.00);   % AlMg3
-P.CFK0   = probe(16.20, [0.88 0.87 0.88], 150.55);   % CFK-UD 0°
-P.CFK90  = probe(16.25, [1.95 1.90 1.90], 151.60);   % CFK-UD 90°
-P.CFK090 = probe(15.85, [2.00 2.00 2.02], 154.61);   % CFK 0°/90°
+% Specimens: width b [mm], thickness at three points [mm], gauge length L0 [mm]
+S.Alu    = specimen(16.06, [4.04 4.04 4.05],  65.00);   % AlMg3
+S.CFK0   = specimen(16.20, [0.88 0.87 0.88], 150.55);   % CFRP UD 0°
+S.CFK90  = specimen(16.25, [1.95 1.90 1.90], 151.60);   % CFRP UD 90°
+S.CFK090 = specimen(15.85, [2.00 2.00 2.02], 154.61);   % CFRP 0°/90°
 
-%% Messdaten
-% Für 0°/90° wird die Messung von Gruppe 3 ausgewertet, weil bei Gruppe 1
-% der Aufleimer abgerutscht ist. Die Kurve von Gruppe 1 und die 90°-Probe
-% von Gruppe 3 werden nur zum Vergleich mitgeplottet.
-g1 = fullfile(daten, 'Messdaten_Gruppe_1');
-g3 = fullfile(daten, 'Messdaten_Gruppe_3');
-aluE     = ladeMessung(fullfile(g1, 'Alu_E.mat'));
-aluBruch = ladeMessung(fullfile(g1, 'Alu_Bruch.mat'));
-cfk0     = ladeMessung(fullfile(g1, 'CFK_0.mat'));
-cfk90    = ladeMessung(fullfile(g1, 'CFK_90.mat'));
-cfk090   = ladeMessung(fullfile(g3, 'CFK_090.mat'));
-cfk090G1 = ladeMessung(fullfile(g1, 'CFK_090.mat'));
-cfk90G3  = ladeMessung(fullfile(g3, 'CFK_90.mat'));
+% The tab on our (group 1) 0°/90° specimen slipped, so group 3's test is
+% evaluated and ours is only plotted for comparison. Group 3's 90° test is
+% a second reference curve.
+g1 = @(f) loadTest(fullfile(root, 'data', 'Messdaten_Gruppe_1', f));
+g3 = @(f) loadTest(fullfile(root, 'data', 'Messdaten_Gruppe_3', f));
+aluE   = g1('Alu_E.mat');    aluB  = g1('Alu_Bruch.mat');
+cfk0   = g1('CFK_0.mat');    cfk90 = g1('CFK_90.mat');
+cfk090 = g3('CFK_090.mat');  cfk090G1 = g1('CFK_090.mat');  cfk90G3 = g3('CFK_90.mat');
 
-C = struct('main', hex2rgb('#1f4e8c'), ...   % Messkurve
-           'ref',  hex2rgb('#8a8a8a'), ...   % Vergleichskurve
-           'mark', hex2rgb('#c0392b'), ...   % Auswertepunkte
-           'lim',  hex2rgb('#2e8b57'));      % Grenzen E-Modul
+C = struct('main', [0.12 0.31 0.55], 'ref', [0.54 0.54 0.54], ...
+           'mark', [0.75 0.22 0.17], 'lim', [0.18 0.55 0.34]);
 
-res = cell(0, 3);   % Zeilen: {Name, Wert, Nachkommastellen}
-
-%% AlMg3, elastischer Bereich: E-Modul zwischen 0,01 % und 0,1 % Dehnung
+%% AlMg3, elastic range: modulus between 0.01 % and 0.1 % strain
 [~, iA] = max(aluE.F);
-e  = [0.01 0.1];                                       % Dehnung [%]
-Fe = ersteUeberschreitung(aluE.eps, aluE.F, e, iA);    % Kraft bei e [kN]
-De = ersteUeberschreitung(aluE.F, aluE.D, Fe, iA);     % Weg bei Fe [mm]
-EaluExt = diff(Fe) * 1e3 / (P.Alu.A * diff(e) / 100);  % N/mm²
-EaluMw  = diff(Fe) * 1e3 / (P.Alu.A * diff(De) / P.Alu.L0);
-res = [res; {
-    'AluFepsA', Fe(1),           3
-    'AluFepsB', Fe(2),           3
-    'AluEext',  EaluExt / 1e3,   1
-    'AluEmw',   EaluMw / 1e3,    1
-    'AluEfak',  EaluExt / EaluMw, 2}];
+e  = [0.01 0.1];
+Fe = firstCrossing(aluE.eps, aluE.F, e, iA);   % force at those strains [kN]
+De = firstCrossing(aluE.F, aluE.D, Fe, iA);    % crosshead position at Fe [mm]
+Eext = diff(Fe) * 1e3 / (S.Alu.A * diff(e) / 100);        % MPa
+Ecr  = diff(Fe) * 1e3 / (S.Alu.A * diff(De) / S.Alu.L0);  % MPa, from crosshead
 
-%% AlMg3 bis zum Bruch
-[FmaxAlu, iB] = max(aluBruch.F);
-iBr = bruchIndex(aluBruch.F, iB);
-Db  = aluBruch.D - aluBruch.D(1);
-FBr = aluBruch.F(iBr);
-res = [res; {
-    'AluFmax',   FmaxAlu,                    2
-    'AluFbruch', FBr,                        2
-    'AluDbruch', Db(iBr),                    2
-    'AluRm',     FmaxAlu * 1e3 / P.Alu.A,    0
-    'AluSigB',   FBr * 1e3 / P.Alu.A,        0
-    'AluAmw',    Db(iBr) / P.Alu.L0 * 100,   1}];
+%% AlMg3 to fracture
+[Fmax, iB] = max(aluB.F);
+iBr = fractureIndex(aluB.F, iB);
+Db  = aluB.D - aluB.D(1);
 
-%% CFK: Bruch bei Fmax, Sekantenmodul zwischen 10 % und 50 % Fmax
-[r0, lim0] = cfkKennwerte(cfk0,   P.CFK0,   'CFKnull');
-[r9, lim9] = cfkKennwerte(cfk90,  P.CFK90,  'CFKneunzig');
-[rx, limx] = cfkKennwerte(cfk090, P.CFK090, 'CFKnullneunzig');
+% Macro names are German because the report is (\RAluRm etc.)
+res = {
+    'AluFepsA',  Fe(1),                     3
+    'AluFepsB',  Fe(2),                     3
+    'AluEext',   Eext / 1e3,                1
+    'AluEmw',    Ecr / 1e3,                 1
+    'AluEfak',   Eext / Ecr,                2
+    'AluFmax',   Fmax,                      2
+    'AluFbruch', aluB.F(iBr),               2
+    'AluDbruch', Db(iBr),                   2
+    'AluRm',     Fmax * 1e3 / S.Alu.A,      0
+    'AluSigB',   aluB.F(iBr) * 1e3 / S.Alu.A, 0
+    'AluAmw',    Db(iBr) / S.Alu.L0 * 100,  1};
+
+%% CFRP
+[r0, lim0] = cfrp(cfk0,   S.CFK0,   'CFKnull');
+[r9, lim9] = cfrp(cfk90,  S.CFK90,  'CFKneunzig');
+[rx, limx] = cfrp(cfk090, S.CFK090, 'CFKnullneunzig');
 [Fg3, ig3] = max(cfk90G3.F);
 res = [res; r0; r9; rx; {
     'GeinsFmaxNullNeunzig', max(cfk090G1.F),  2
     'GdreiFmaxNeunzig',     Fg3,              2
     'GdreiEpsBNeunzig',     cfk90G3.eps(ig3), 3}];
 
-%% Prüfgeschwindigkeit in mm/min (Plausibilitätskontrolle)
-proben = {aluE, aluBruch, cfk0, cfk90, cfk090};
-namen  = {'vAluE', 'vAluB', 'vCFKnull', 'vCFKneunzig', 'vCFKnullneunzig'};
-for k = 1:numel(proben)
-    res(end+1, :) = {namen{k}, pruefgeschwindigkeit(proben{k}), 2}; %#ok<AGROW>
+%% Test speed in mm/min (plausibility check)
+tests = {aluE, aluB, cfk0, cfk90, cfk090};
+names = {'vAluE', 'vAluB', 'vCFKnull', 'vCFKneunzig', 'vCFKnullneunzig'};
+for k = 1:numel(tests)
+    res(end+1, :) = {names{k}, testSpeed(tests{k}), 2}; %#ok<AGROW>
 end
 
-%% Diagramme
-% (a) AlMg3 elastisch, Kraft über Extensometerdehnung
-ax = neueAchse();
+%% Plots
+xStrainExt = 'Extensometer strain {\itε} [%]';
+xStrainSG  = 'Strain gauge strain {\itε} [%]';
+xCross     = 'Crosshead displacement Δ{\itl} [mm]';
+
+% (a) AlMg3 elastic, force over extensometer strain
+ax = newPlot();
 plot(ax, aluE.eps(1:iA), aluE.F(1:iA), 'Color', C.main, 'LineWidth', 1.4, ...
-    'DisplayName', 'AlMg3, Extensometer (Gr. 1)');
-xline(ax, e(1), '--', 'Color', C.lim, 'LineWidth', 0.9, ...
-    'DisplayName', 'E-Modul-Grenzen ε = 0,01 % / 0,1 %');
-xline(ax, e(2), '--', 'Color', C.lim, 'LineWidth', 0.9, 'HandleVisibility', 'off');
-plot(ax, e, Fe, 'o-', 'Color', C.lim, 'LineWidth', 1.0, 'MarkerSize', 6, ...
-    'MarkerFaceColor', C.lim, 'MarkerEdgeColor', 'w', 'HandleVisibility', 'off');
-speichern(ax, fullfile(figDir, 'a_alu_elast_ext.pdf'), 'Extensometerdehnung {\itε} [%]');
+    'DisplayName', 'AlMg3, extensometer');
+xline(ax, e(1), '--', 'Color', C.lim, 'DisplayName', 'Modulus limits 0.01 % / 0.1 %');
+xline(ax, e(2), '--', 'Color', C.lim, 'HandleVisibility', 'off');
+plot(ax, e, Fe, 'o-', 'Color', C.lim, 'MarkerFaceColor', C.lim, 'HandleVisibility', 'off');
+savePlot(ax, fullfile(figDir, 'a_alu_elast_ext.pdf'), xStrainExt);
 
-% (b) AlMg3 elastisch, Kraft über Maschinenweg
-ax = neueAchse();
+% (b) AlMg3 elastic, force over crosshead displacement
+ax = newPlot();
 plot(ax, aluE.D(1:iA), aluE.F(1:iA), 'Color', C.main, 'LineWidth', 1.4, ...
-    'DisplayName', 'AlMg3, Maschinenweg (Gr. 1)');
-horizGrenzen(ax, Fe, 'Kräfte bei ε = 0,01 % / 0,1 %', C.lim);
-plot(ax, De, Fe, 'o', 'MarkerSize', 6, 'MarkerFaceColor', C.lim, ...
-    'MarkerEdgeColor', 'w', 'HandleVisibility', 'off');
-speichern(ax, fullfile(figDir, 'b_alu_elast_mw.pdf'), 'Maschinenweg Δ{\itl} [mm]');
+    'DisplayName', 'AlMg3, crosshead');
+limitLines(ax, Fe, 'Forces at 0.01 % / 0.1 % strain', C.lim);
+plot(ax, De, Fe, 'o', 'Color', C.lim, 'MarkerFaceColor', C.lim, 'HandleVisibility', 'off');
+savePlot(ax, fullfile(figDir, 'b_alu_elast_mw.pdf'), xCross);
 
-% (c) AlMg3 bis Bruch, Kraft über Maschinenweg
-ax = neueAchse();
-n = min(iBr + 29, numel(Db));   % ein Stück nach dem Bruch mitzeichnen
-plot(ax, Db(1:n), aluBruch.F(1:n), 'Color', C.main, 'LineWidth', 1.4, ...
-    'DisplayName', 'AlMg3 bis Bruch (Gr. 1)');
-markiere(ax, Db(iB), FmaxAlu, 'o', C.mark, ['{\itF}_{max} = ' komma(FmaxAlu) ' kN']);
-markiere(ax, Db(iBr), FBr, 's', C.mark, ['Bruch: {\itF}_B = ' komma(FBr) ' kN']);
-speichern(ax, fullfile(figDir, 'c_alu_bruch_mw.pdf'), 'Maschinenweg Δ{\itl} [mm]');
+% (c) AlMg3 to fracture
+ax = newPlot();
+n = min(iBr + 29, numel(Db));   % draw a bit past the fracture point
+plot(ax, Db(1:n), aluB.F(1:n), 'Color', C.main, 'LineWidth', 1.4, ...
+    'DisplayName', 'AlMg3 to fracture');
+plot(ax, Db(iB), Fmax, 'o', 'Color', C.mark, 'MarkerFaceColor', C.mark, ...
+    'DisplayName', ['{\itF}_{max} = ' num(Fmax) ' kN']);
+plot(ax, Db(iBr), aluB.F(iBr), 's', 'Color', C.mark, 'MarkerFaceColor', C.mark, ...
+    'DisplayName', ['Fracture: {\itF}_B = ' num(aluB.F(iBr)) ' kN']);
+savePlot(ax, fullfile(figDir, 'c_alu_bruch_mw.pdf'), xCross);
 
-% (d)-(i) CFK, jeweils über Dehnung und über Maschinenweg
-cfkDiagramme(cfk0, lim0, C, figDir, 'de_cfk0', 'CFK-UD 0° (Gr. 1)', ...
-    'DMS-Dehnung {\itε} [%]', [], '');
-cfkDiagramme(cfk90, lim9, C, figDir, 'fg_cfk90', 'CFK-UD 90° (Gr. 1)', ...
-    'Extensometerdehnung {\itε} [%]', cfk90G3, 'CFK-UD 90° (Gr. 3, Vergleich)');
-cfkDiagramme(cfk090, limx, C, figDir, 'hi_cfk090', 'CFK 0°/90° (Gr. 3, ausgewertet)', ...
-    'DMS-Dehnung {\itε} [%]', cfk090G1, 'CFK 0°/90° (Gr. 1, Aufleimer abgerutscht)');
+% (d)-(i) CFRP, each over strain and over crosshead displacement
+cfrpPlots(cfk0,   lim0, C, figDir, 'de_cfk0',   'UD 0° (group 1)',  xStrainSG,  [], '');
+cfrpPlots(cfk90,  lim9, C, figDir, 'fg_cfk90',  'UD 90° (group 1)', xStrainExt, ...
+    cfk90G3, 'UD 90° (group 3, reference)');
+cfrpPlots(cfk090, limx, C, figDir, 'hi_cfk090', '0°/90° (group 3)', xStrainSG, ...
+    cfk090G1, '0°/90° (group 1, tab slipped)');
 
 %% Export
-fid = fopen(fullfile(here, 'ergebnisse.tex'), 'w', 'n', 'UTF-8');
-fprintf(fid, '%% automatisch erzeugt von auswertung.m, nicht von Hand bearbeiten\n');
+fid = fopen(fullfile(root, 'results.tex'), 'w', 'n', 'UTF-8');
+fprintf(fid, '%% generated by evaluate_tensile_tests.m, do not edit\n');
 for k = 1:size(res, 1)
-    fprintf(fid, '\\newcommand{\\R%s}{%s}\n', res{k, 1}, fmt(res{k, 2}, res{k, 3}));
+    fprintf(fid, '\\newcommand{\\R%s}{%s}\n', res{k, 1}, tex(res{k, 2}, res{k, 3}));
 end
-tags = struct('Alu', 'Alu', 'CFK0', 'CFKnull', 'CFK90', 'CFKneunzig', 'CFK090', 'CFKnullneunzig');
-for name = fieldnames(P)'
-    p  = P.(name{1});
-    tg = tags.(name{1});
-    t3 = strjoin(arrayfun(@(x) fmt(x, 2), p.t3, 'UniformOutput', false), ' / ');
-    fprintf(fid, '\\newcommand{\\P%sb}{%s}\n',     tg, fmt(p.b, 2));
-    fprintf(fid, '\\newcommand{\\P%st}{%s}\n',     tg, fmt(p.t, 3));
-    fprintf(fid, '\\newcommand{\\P%stdrei}{%s}\n', tg, t3);
-    fprintf(fid, '\\newcommand{\\P%sL}{%s}\n',     tg, fmt(p.L0, 1));
-    fprintf(fid, '\\newcommand{\\P%sA}{%s}\n',     tg, fmt(p.A, 2));
+tags = {'Alu', 'CFKnull', 'CFKneunzig', 'CFKnullneunzig'};
+fn = fieldnames(S);
+for k = 1:numel(fn)
+    s = S.(fn{k});
+    t = tags{k};
+    t3 = strjoin(arrayfun(@(x) tex(x, 2), s.t3, 'UniformOutput', false), ' / ');
+    fprintf(fid, '\\newcommand{\\P%sb}{%s}\n',     t, tex(s.b, 2));
+    fprintf(fid, '\\newcommand{\\P%st}{%s}\n',     t, tex(s.t, 3));
+    fprintf(fid, '\\newcommand{\\P%stdrei}{%s}\n', t, t3);
+    fprintf(fid, '\\newcommand{\\P%sL}{%s}\n',     t, tex(s.L0, 1));
+    fprintf(fid, '\\newcommand{\\P%sA}{%s}\n',     t, tex(s.A, 2));
 end
 fclose(fid);
 
-T = table(res(:, 1), round(cell2mat(res(:, 2)), 4), 'VariableNames', {'Kennwert', 'Wert'});
-writetable(T, fullfile(here, 'ergebnisse.csv'));
-
-fprintf('Fertig. Diagramme in figures/, Kennwerte in ergebnisse.tex und ergebnisse.csv\n');
-for k = 1:size(res, 1)
-    fprintf('  %-24s %s\n', res{k, 1}, komma(res{k, 2}, res{k, 3}));
-end
+writetable(table(res(:, 1), round(cell2mat(res(:, 2)), 4), ...
+    'VariableNames', {'Name', 'Value'}), fullfile(root, 'results.csv'));
+fprintf('Done. Plots in figures/, results in results.tex and results.csv\n');
 end
 
 
-%% ========================================================================
-%  Auswertung
-%  ========================================================================
+%% ------------------------------------------------------------------------
+%  Evaluation
+%  ------------------------------------------------------------------------
 
-function p = probe(b, t3, L0)
-% Probengeometrie; Dicke als Mittelwert der drei Messstellen.
+function s = specimen(b, t3, L0)
 t = mean(t3);
-p = struct('b', b, 't3', t3, 't', t, 'L0', L0, 'A', b * t);
+s = struct('b', b, 't3', t3, 't', t, 'L0', L0, 'A', b * t);
 end
 
-function m = ladeMessung(datei)
-% Lädt eine .mat-Datei der Prüfmaschine (Kraft, Weg, Dehnung, Zeit).
-s = load(datei);
+function m = loadTest(file)
+% Loads one .mat export of the testing machine.
+s = load(file);
 m.F = s.Load(:);
-% wie im Lehrstuhlskript: Wegvektor auf die Länge des Kraftvektors kürzen
+% Same as the chair's reference script: trim displacement to the force length
 D = s.Displacement(:);
 m.D = D(max(1, end - numel(m.F) + 1):end);
 m.eps = [];
-for feld = {'Strain', 'Extensometer'}
-    if isfield(s, feld{1})
-        e = s.(feld{1})(:);
+for f = {'Strain', 'Extensometer'}
+    if isfield(s, f{1})
+        e = s.(f{1})(:);
         m.eps = e(1:min(end, numel(m.F)));
     end
 end
 m.t = s.Load_time(:);
 end
 
-function [rows, lim] = cfkKennwerte(c, p, tag)
-% Kennwerte einer CFK-Probe. Bruch = Fmax, Sekantenmodul 10-50 % Fmax,
-% einmal aus der DMS-/Extensometerdehnung und einmal aus dem Maschinenweg.
+function [rows, lim] = cfrp(c, s, tag)
+% CFRP fails brittle, so fracture = Fmax.
+% Secant modulus between 10 % and 50 % Fmax, from strain and from crosshead.
 [Fmax, i] = max(c.F);
 lim.i   = i;
 lim.F   = [0.1 0.5] * Fmax;
-lim.eps = ersteUeberschreitung(c.F, c.eps, lim.F, i);
-lim.D   = ersteUeberschreitung(c.F, c.D,   lim.F, i);
-
-epsB   = c.eps(i);
-DB     = c.D(i) - c.D(1);
-epsBmw = DB / p.L0 * 100;
-Es     = diff(lim.F) * 1e3 / (p.A * diff(lim.eps) / 100);   % N/mm²
-Emw    = diff(lim.F) * 1e3 / (p.A * diff(lim.D) / p.L0);
-sigB   = Fmax * 1e3 / p.A;
-
+lim.eps = firstCrossing(c.F, c.eps, lim.F, i);
+lim.D   = firstCrossing(c.F, c.D, lim.F, i);
+epsB  = c.eps(i);
+DB    = c.D(i) - c.D(1);
+epsCr = DB / s.L0 * 100;
+Es    = diff(lim.F) * 1e3 / (s.A * diff(lim.eps) / 100);
+Ecr   = diff(lim.F) * 1e3 / (s.A * diff(lim.D) / s.L0);
 rows = {
-    [tag 'Fmax'],      Fmax,          2
-    [tag 'Fzehn'],     lim.F(1),      2
-    [tag 'Ffuenfzig'], lim.F(2),      2
-    [tag 'epsB'],      epsB,          3
-    [tag 'DB'],        DB,            2
-    [tag 'sigB'],      sigB,          0
-    [tag 'Es'],        Es / 1e3,      1
-    [tag 'epsBmw'],    epsBmw,        3
-    [tag 'epsfak'],    epsB / epsBmw, 2
-    [tag 'Emw'],       Emw / 1e3,     1
-    [tag 'Efak'],      Es / Emw,      2};
+    [tag 'Fmax'],      Fmax,             2
+    [tag 'Fzehn'],     lim.F(1),         2
+    [tag 'Ffuenfzig'], lim.F(2),         2
+    [tag 'epsB'],      epsB,             3
+    [tag 'DB'],        DB,               2
+    [tag 'sigB'],      Fmax * 1e3 / s.A, 0
+    [tag 'Es'],        Es / 1e3,         1
+    [tag 'epsBmw'],    epsCr,            3
+    [tag 'epsfak'],    epsB / epsCr,     2
+    [tag 'Emw'],       Ecr / 1e3,        1
+    [tag 'Efak'],      Es / Ecr,         2};
 end
 
-function out = ersteUeberschreitung(ref, val, q, iEnd)
-% Wert von val an der Stelle, an der ref zum ersten Mal q erreicht.
-% Gesucht wird in der monoton steigenden Hüllkurve von ref bis iEnd,
-% dazwischen wird linear interpoliert. q darf ein Vektor sein.
-huelle = cummax(ref(1:iEnd));
+function out = firstCrossing(ref, val, q, iEnd)
+% Value of val where ref first reaches q (linear interpolation).
+% Searches the rising envelope of ref up to iEnd, so small dips in the
+% curve don't cause a second crossing. q can be a vector.
+env = cummax(ref(1:iEnd));
 out = zeros(size(q));
 for k = 1:numel(q)
-    j = find(huelle >= q(k), 1);
-    if isempty(j), j = iEnd; end
-    j = max(j, 2);
-    r0 = ref(j - 1);
-    r1 = ref(j);
+    j = max(2, find([env; inf] >= q(k), 1));
+    j = min(j, iEnd);
     w = 0;
-    if r1 ~= r0, w = (q(k) - r0) / (r1 - r0); end
-    out(k) = val(j - 1) + w * (val(j) - val(j - 1));
+    if ref(j) ~= ref(j-1), w = (q(k) - ref(j-1)) / (ref(j) - ref(j-1)); end
+    out(k) = val(j-1) + w * (val(j) - val(j-1));
 end
 end
 
-function i = bruchIndex(F, iMax)
-% Bruchpunkt Alu: Beginn des steilsten Kraftabfalls nach Fmax.
+function i = fractureIndex(F, iMax)
+% AlMg3 fracture point: start of the steepest force drop after Fmax.
 w = 5;
-dF = F(iMax + w:end) - F(iMax:end - w);
-[~, k] = min(dF);
+[~, k] = min(F(iMax+w:end) - F(iMax:end-w));
 i = iMax + k - 1;
 end
 
-function v = pruefgeschwindigkeit(m)
-% Median der Traversengeschwindigkeit bis Fmax in mm/min (NaN bei Stillstand).
+function v = testSpeed(m)
+% Median crosshead speed up to Fmax in mm/min (NaN if it never moves).
 [~, i] = max(m.F);
 v = diff(m.D(1:i)) ./ diff(m.t(1:i)) * 60;
 v = median(v(v > 0.01));
 end
 
 
-%% ========================================================================
-%  Diagramme
-%  ========================================================================
+%% ------------------------------------------------------------------------
+%  Plotting
+%  ------------------------------------------------------------------------
 
-function cfkDiagramme(c, lim, C, figDir, basis, titel, xlabEps, ref, refLabel)
-% Zwei Diagramme pro CFK-Probe: Kraft über Dehnung und über Maschinenweg.
+function cfrpPlots(c, lim, C, figDir, name, label, xStrain, ref, refLabel)
 i = lim.i;
-grenzLabel = 'Grenzen Sekantenmodul 10 % / 50 % {\itF}_{max}';
-
-ax = neueAchse();
-if ~isempty(ref)
-    [~, ir] = max(ref.F);
-    plot(ax, ref.eps(1:ir), ref.F(1:ir), '--', 'Color', C.ref, 'LineWidth', 1.1, ...
-        'DisplayName', refLabel);
-end
-plot(ax, c.eps(1:i), c.F(1:i), 'Color', C.main, 'LineWidth', 1.4, 'DisplayName', titel);
-horizGrenzen(ax, lim.F, grenzLabel, C.lim);
-plot(ax, lim.eps, lim.F, 'Color', C.lim, 'LineWidth', 1.0, 'HandleVisibility', 'off');
-markiere(ax, c.eps(i), c.F(i), 'o', C.mark, ['Bruch: {\itF}_{max} = ' komma(c.F(i)) ...
-    ' kN, {\itε}_B = ' komma(c.eps(i)) ' %']);
-speichern(ax, fullfile(figDir, [basis '_eps.pdf']), xlabEps);
-
-ax = neueAchse();
-if ~isempty(ref)
-    [~, ir] = max(ref.F);
-    Dr = ref.D - ref.D(1);
-    nr = min(ir + 39, numel(Dr));
-    plot(ax, Dr(1:nr), ref.F(1:nr), '--', 'Color', C.ref, 'LineWidth', 1.1, ...
-        'DisplayName', refLabel);
-end
 D = c.D - c.D(1);
-plot(ax, D(1:i), c.F(1:i), 'Color', C.main, 'LineWidth', 1.4, 'DisplayName', titel);
-horizGrenzen(ax, lim.F, grenzLabel, C.lim);
-plot(ax, lim.D - c.D(1), lim.F, 'Color', C.lim, 'LineWidth', 1.0, 'HandleVisibility', 'off');
-markiere(ax, D(i), c.F(i), 'o', C.mark, ['Bruch: {\itF}_{max} = ' komma(c.F(i)) ...
-    ' kN, Δ{\itl}_B = ' komma(D(i)) ' mm']);
-speichern(ax, fullfile(figDir, [basis '_mw.pdf']), 'Maschinenweg Δ{\itl} [mm]');
+for view = 1:2
+    ax = newPlot();
+    if view == 1
+        x = c.eps; xl = lim.eps; xlab = xStrain; file = [name '_eps.pdf'];
+        mk = ['{\itε}_B = ' num(x(i)) ' %'];
+    else
+        x = D; xl = lim.D - c.D(1); xlab = 'Crosshead displacement Δ{\itl} [mm]';
+        file = [name '_mw.pdf'];
+        mk = ['Δ{\itl}_B = ' num(x(i)) ' mm'];
+    end
+    if ~isempty(ref)
+        [~, ir] = max(ref.F);
+        if view == 1, xr = ref.eps; n = ir;
+        else, xr = ref.D - ref.D(1); n = min(ir + 39, numel(xr)); end
+        plot(ax, xr(1:n), ref.F(1:n), '--', 'Color', C.ref, 'LineWidth', 1.1, ...
+            'DisplayName', refLabel);
+    end
+    plot(ax, x(1:i), c.F(1:i), 'Color', C.main, 'LineWidth', 1.4, 'DisplayName', label);
+    limitLines(ax, lim.F, 'Secant modulus limits 10 % / 50 % {\itF}_{max}', C.lim);
+    plot(ax, xl, lim.F, 'Color', C.lim, 'HandleVisibility', 'off');
+    plot(ax, x(i), c.F(i), 'o', 'Color', C.mark, 'MarkerFaceColor', C.mark, ...
+        'DisplayName', ['Fracture: {\itF}_{max} = ' num(c.F(i)) ' kN, ' mk]);
+    savePlot(ax, fullfile(figDir, file), xlab);
+end
 end
 
-function ax = neueAchse()
-f = figure('Visible', 'off', 'Units', 'inches', 'Position', [1 1 6.0 3.6], 'Color', 'w');
+function ax = newPlot()
+f = figure('Visible', 'off', 'Units', 'inches', 'Position', [1 1 6 3.6], 'Color', 'w');
 ax = axes(f);
 hold(ax, 'on'); box(ax, 'on'); grid(ax, 'on');
 set(ax, 'FontName', 'Times New Roman', 'FontSize', 10, 'LineWidth', 0.6, ...
-    'GridColor', hex2rgb('#dddddd'), 'GridAlpha', 1);
+    'GridColor', [0.87 0.87 0.87], 'GridAlpha', 1);
 ax.XAxis.Exponent = 0;
 end
 
-function speichern(ax, datei, xlab)
+function savePlot(ax, file, xlab)
 xlabel(ax, xlab);
-ylabel(ax, 'Kraft {\itF} [kN]');
+ylabel(ax, 'Force {\itF} [kN]');
 xl = xlim(ax); xlim(ax, [min(0, xl(1)), xl(2)]);
 yl = ylim(ax); ylim(ax, [0, yl(2)]);
 legend(ax, 'Location', 'best', 'Box', 'off', 'FontSize', 8.5);
-exportgraphics(ax.Parent, datei, 'ContentType', 'vector');
+exportgraphics(ax.Parent, file, 'ContentType', 'vector');
 close(ax.Parent);
 end
 
-function horizGrenzen(ax, F, label, farbe)
-yline(ax, F(1), '--', 'Color', farbe, 'LineWidth', 0.9, 'DisplayName', label);
-yline(ax, F(2), '--', 'Color', farbe, 'LineWidth', 0.9, 'HandleVisibility', 'off');
-end
-
-function markiere(ax, x, y, symbol, farbe, label)
-plot(ax, x, y, symbol, 'MarkerSize', 6, 'MarkerFaceColor', farbe, ...
-    'MarkerEdgeColor', 'w', 'LineWidth', 1.0, 'DisplayName', label);
+function limitLines(ax, F, label, color)
+yline(ax, F(1), '--', 'Color', color, 'DisplayName', label);
+yline(ax, F(2), '--', 'Color', color, 'HandleVisibility', 'off');
 end
 
 
-%% ========================================================================
-%  Formatierung
-%  ========================================================================
+%% ------------------------------------------------------------------------
+%  Number formatting
+%  ------------------------------------------------------------------------
 
-function s = fmt(v, nd)
-% Zahl für LaTeX mit Dezimalkomma; NaN erscheint im Bericht als ??.
-if isempty(v) || isnan(v)
+function s = num(v)
+s = sprintf('%.2f', v);
+end
+
+function s = tex(v, nd)
+% Decimal comma for the German report; NaN shows up as ?? in the PDF.
+if isnan(v)
     s = '\textbf{??}';
 else
     s = strrep(sprintf('%.*f', nd, v), '.', '{,}');
 end
-end
-
-function s = komma(v, nd)
-% Zahl mit Dezimalkomma für Legenden und Konsolenausgabe.
-if nargin < 2, nd = 2; end
-s = strrep(sprintf('%.*f', nd, v), '.', ',');
-end
-
-function c = hex2rgb(h)
-c = sscanf(h(2:end), '%2x%2x%2x', [1 3]) / 255;
 end
