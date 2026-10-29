@@ -1,47 +1,45 @@
-# Tensile Test Evaluation: AlMg3 and CFRP
+# Tensile Test Evaluation
 
-MATLAB script for evaluating tensile tests on an aluminium alloy (AlMg3) and three carbon fibre laminates (UD 0°, UD 90° and 0°/90°). I wrote it for the lab course "Wissenschaftlicher Versuch mit Forschungsdatenmanagement" at TUM (Chair of Product Development and Lightweight Design, winter term 2026/27). The tests ran on a ZwickRoell universal testing machine.
+MATLAB evaluation of tensile tests on AlMg3 and CFRP laminates (UD 0°, UD 90°, 0°/90°) from the TUM lab course "Scientific Experiment with Research Data Management – Tensile Test" (Chair of Product Development and Lightweight Design, winter semester 2026/27, Group 1).
 
-The script reads the raw machine data, computes the material properties and writes everything the group report needs: vector PDF plots and a file of LaTeX macros, so every number in the report comes straight from the data.
+The tests ran on an Instron 4505 (100 kN). Strain was measured with an extensometer, strain gauges and the crosshead displacement. One goal of the course was to quantify how far off the crosshead displacement is.
 
-## What it computes
+## Contents
 
-AlMg3
-- Young's modulus between 0.01 % and 0.1 % strain, once from the extensometer and once from the crosshead displacement
-- Tensile strength R<sub>m</sub>, fracture force and strain at fracture
-- Fracture point detected as the start of the steepest force drop after F<sub>max</sub>
+| File | Description |
+|---|---|
+| `auswertung.m` | Evaluation script for the German report (German labels, decimal commas) |
+| `evaluation.m` | Same calculation with English labels; creates the figures and values for the English report |
+| `results.csv`, `results.tex` | Characteristic values (table and LaTeX macros used by the report) |
+| `figures/` | Force–strain and force–displacement diagrams (a)–(i) |
+| `photos/` | Fracture patterns of the specimens |
+| `Tensile_Test_Group1_EN.tex` / `.pdf` | Report incl. data management plan (English translation of the German original) |
 
-CFRP
-- Fracture force and strain at F<sub>max</sub> (the laminates fail brittle)
-- Secant modulus between 10 % and 50 % of F<sub>max</sub>, from strain gauge or extensometer and from crosshead displacement
+## Key results
 
-The ratio between the two modulus values shows how much machine compliance and grip slip distort a modulus taken from crosshead travel.
+| Specimen | E [GPa] | Strength [N/mm²] | E error factor (crosshead) |
+|---|---|---|---|
+| AlMg3 | 66.5 | R_m = 227 | 3.74 |
+| CFRP UD 0° | 153.5 | 2292 | 2.81 |
+| CFRP UD 90°* | 7.7 | 17 | 1.19 |
+| CFRP 0°/90°** | 79.8 | 1033 | 2.51 |
 
-Test speed is checked as well (median crosshead speed up to F<sub>max</sub>).
+\* broke in the grip, limited validity  ** measurement data of Group 3
 
-## Files
+The modulus from the crosshead displacement is too low by a factor of 1.2 to 3.7, because it includes the compliance of the machine, grips and end tabs. The stiffer the specimen, the larger the error.
 
+## Usage
+
+Put the .mat files in `daten/Messdaten_Gruppe_1/` and `daten/Messdaten_Gruppe_3/`, then run in MATLAB (R2020a or newer):
+
+```matlab
+evaluation
 ```
-auswertung.m        evaluation script
-daten/              raw data (.mat), not included, see below
-figures/            plots, created by the script
-ergebnisse.tex      LaTeX macros with all results, created by the script
-ergebnisse.csv      the same results as a table, created by the script
-```
 
-## Running it
+This writes `figures/*.pdf`, `results.tex` and `results.csv`. Compile the report with `pdflatex Tensile_Test_Group1_EN.tex` (twice, for the table of contents).
 
-Requires MATLAB R2020a or newer (uses `exportgraphics`, `xline`, `yline`). No toolboxes.
+The raw data (provided by the chair) are not part of this repository, in line with the data management plan.
 
-1. Put the measurement files into `daten/Messdaten_Gruppe_1/` and `daten/Messdaten_Gruppe_3/`.
-2. Run `auswertung` in the MATLAB command window from the repository folder.
+## Authors
 
-Specimen width, thickness (three measuring points) and gauge length are entered at the top of the script.
-
-In the report the results are loaded with `\input{ergebnisse.tex}` and used as macros, e.g. `\RAluRm` for the tensile strength of AlMg3.
-
-## Notes
-
-- For the 0°/90° laminate the data of group 3 is evaluated. On our specimen the tab slipped during the test, so that curve is only plotted for comparison.
-- Code comments and plot labels are in German because the report was written in German.
-- The raw data belongs to the chair and is not part of this repository.
+Georg Müller, Junjie Qiu, Mark Radlach, Martin Streicher (TUM). Contributions are listed in the report.
