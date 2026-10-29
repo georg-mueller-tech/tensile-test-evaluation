@@ -8,8 +8,7 @@ The tests ran on an Instron 4505 (100 kN). Strain was measured with an extensome
 
 | File | Description |
 |---|---|
-| `auswertung.m` | Evaluation script for the German report (German labels, decimal commas) |
-| `evaluation.m` | Same calculation with English labels; creates the figures and values for the English report |
+| `evaluation.m` | Reads the raw data, computes all characteristic values and creates the figures |
 | `results.csv`, `results.tex` | Characteristic values (table and LaTeX macros used by the report) |
 | `figures/` | Force–strain and force–displacement diagrams (a)–(i) |
 | `photos/` | Fracture patterns of the specimens |
